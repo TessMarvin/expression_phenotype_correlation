@@ -200,15 +200,13 @@ def correlation_matrix(gene, df_correctnames, elo_data, cov4_data):
                         dict_covs[r].append(float("NaN"))
 
     r, p =scipy.stats.pearsonr(x_vals,y_vals)
-    print(r)
-    print(p)
     df = pd.DataFrame(list(zip(x_vals,y_vals)), columns = ['gene_expression', 'ELO'])
     df_covs = pd.DataFrame.from_dict(dict_covs)
     final_df = pd.concat([df,df_covs], axis=1)
     #['PL01', 'PL02', 'PL03', 'PL04', 'PL05', 'PL05a', 'PL05b', 'UNK', 'xcov', 'ycov', 'InferredCov1']
     corr_object = part_corr(data=final_df, x='gene_expression', y='ELO', covar = list(cov4_data.index), method = 'pearson')
-    print(corr_object)
-#THIS FUNCTION IS FROM PINGOUIN PACKAGE -- I had to modify it for my purposes -- I did not write this
+    return(r,p,corr_object)
+#THIS FUNCTION IS FROM PINGOUIN PACKAGE -- I had to modify it for my purposes -- I did not write this function
 #https://pingouin-stats.org/_modules/pingouin/correlation.html
 #Author: Raphael Vallat
 def part_corr(data=None, x=None, y=None, covar=None, x_covar=None,
@@ -243,7 +241,8 @@ def part_corr(data=None, x=None, y=None, covar=None, x_covar=None,
     data = data[col].dropna()
     assert data.shape[0] > 2, 'Data must have at least 3 non-NAN samples.'
 
-    # Standardize (= no need for an intercept in least-square regression) -- this does NOT work with my dummy variable for plates
+    # Standardize (= no need for an intercept in least-square regression)
+    #This does NOT work with dummy variable for plate covariates -- so I will not standardize those
     #So, only standardize for those variables that work
     for c in col:
         if(data[c].std(axis=0) != 0):
@@ -268,6 +267,38 @@ def part_corr(data=None, x=None, y=None, covar=None, x_covar=None,
             beta_y = np.linalg.lstsq(cvar, C[y].to_numpy(), rcond=None)[0]
             res_y = C[y].to_numpy() - cvar @ beta_y
     return pg.corr(res_x, res_y, method=method, tail=tail)
+
+def main_loop(normalized_fixed_names):
+    #for gene in normalized_fixed_names.index:
+        #correlation_matrix(gene,normalized_fixed_names, elo_data, cov4_data)
+    #df_gene_names = normalized_fixed_names.index
+    pvals = []
+    r_no_cov = []
+    p_no_cov = []
+    r_cov = []
+    CI95 = []
+    r2 = []
+    adj_r2 = []
+    BF10 = []
+    power = []
+    list_of_genes = []
+    #r          CI95%        r2    adj_r2    p-val  BF10     power
+    for gene in normalized_fixed_names.index:
+        r,p,corr_object= correlation_matrix(gene, normalized_fixed_names, elo_data, cov4_data)
+        r_no_cov.append(r)
+        p_no_cov.append(p)
+        pvals.append(float(corr_object.loc["pearson", "p-val"]))
+        r_cov.append(float(corr_object.loc["pearson", "r"]))
+        CI95.append(corr_object.loc["pearson", "CI95%"])
+        r2.append(float(corr_object.loc["pearson", "r2"]))
+        adj_r2.append(float(corr_object.loc["pearson", "adj_r2"]))
+        BF10.append(float(corr_object.loc["pearson", "BF10"]))
+        power.append(float(corr_object.loc["pearson", "power"]))
+        list_of_genes.append(str(gene))
+    df_output = pd.DataFrame(list(zip(pvals,r_cov,CI95,r2,adj_r2,BF10,power,r_no_cov,p_no_cov)),
+                columns = ['p-val','r_cov','CI95','r2','adj_r2','BF10','power','r_no_cov','p_no_cov'], index=list_of_genes)
+    print(df_output)
+    df_output.to_csv(r'./gene_ELO_correlation.csv', header= True)
 if __name__ == '__main__':
     probefile = './GENE2_probeinfo.csv'
     raw_couts_data= './GENE2_NOPROBE.count'
@@ -281,5 +312,5 @@ if __name__ == '__main__':
     qc_counts_data= sample_and_geneqc(gctdata)
     normalized_counts= tpm_norm(qc_counts_data, probefile)
     normalized_fixed_names = fix_names(normalized_counts)
-    for gene in normalized_fixed_names.index:
-        correlation_matrix(gene,normalized_fixed_names, elo_data, cov4_data)
+    main_loop(normalized_fixed_names)
+    #correlation_matrix("PF3D7_0406200", normalized_fixed_names, elo_data, cov4_data)
